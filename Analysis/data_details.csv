@@ -56,11 +56,24 @@
 19,upper_quartile_home_value,float64,Census,0.09313877677739833,"[286400. 217600. 477300. 270600. 245300. 217300. 968900. 250700. 163500.
  400800. 167100. 178200. 194700. 268000. 794200. 807600. 300100. 198000.
  189600. 308400.]",2011
-20,median_gross_rent_frac_income,float64,Census,0.12418503570319776,,262
-21,median_gross_rent,float64,Census,0.24837007140639553,,911
-22,lower_quartile_home_value,float64,Census,0.24837007140639553,,1493
-23,mhhi_nonfamily,float64,Census,0.3104625892579944,,2993
-24,NAME,object,Census,0.0,,3221
+20,median_gross_rent_frac_income,float64,Census,0.12418503570319776,"[31.5 29.5 24.4 26.4 25.2 21.8 36.1 26.7 27.7 29.9 28.  27.2 29.1 31.9
+ 27.9 31.7 26.2 23.6 22.9 27.5]",262
+21,median_gross_rent,float64,Census,0.24837007140639553,"[ 968.  639.  841.  598.  730.  804. 1724.  757.  702. 1084.  714.  756.
+  701.  817. 1815. 1682. 1002.  755.  737. 1074.]",911
+22,lower_quartile_home_value,float64,Census,0.24837007140639553,"[146900.  63800. 187800.  97200. 106800.  96700. 395400.  99800.  59400.
+ 137600.  66400.  57400.  67000. 108800. 402900. 353000. 149500.  80800.
+  82100. 151000.]",1493
+23,mhhi_nonfamily,float64,Census,0.3104625892579944,"[37950. 30345. 34108. 25673. 35044. 37977. 55102. 34239. 25170. 39362.
+ 31283. 36250. 21684. 32018. 66283. 53245. 34011. 27860. 40960. 39185.]",2993
+24,NAME,object,Census,0.0,"['Riley County, Kansas' 'Ringgold County, Iowa' 'Carbon County, Montana'
+ 'Bear Lake County, Idaho' 'Buffalo County, Wisconsin'
+ 'York County, Nebraska' 'Eagle County, Colorado'
+ 'Westmoreland County, Pennsylvania' 'Le Flore County, Oklahoma'
+ 'Burnet County, Texas' 'Chenango County, New York' 'Logan County, Kansas'
+ 'Gibson County, Tennessee' 'Itasca County, Minnesota'
+ 'Middlesex County, Massachusetts' 'Westchester County, New York'
+ 'Meade County, South Dakota' 'Wood County, West Virginia'
+ 'Buena Vista County, Iowa' 'Cheatham County, Tennessee']",3221
 0,yr,int64,FHFA,0.0,"[1991 1992 1993 1994 1995 1996 1997 1998 1999 2000 2001 2002 2003 2004
  2005 2006 2007 2008 2009 2010]",32
 1,qtr,int64,FHFA,0.0,[1 2 3 4],4

@@ -1,0 +1,468 @@
+---
+title: "Predicting Zillow House Prices"
+author: "Mason Walker"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message=FALSE,
+                      warning=FALSE)
+```
+
+The goal of this notebook is to both explore and settle on a regression model that will be used to predict home prices across U.S. counties. 
+
+The **data** used in this analysis comes from a merged dataset that includes data from various sources:
+
+- Zillow Inc. real estate pricing estimates
+- American Community Survey housing and demographic estimates
+- BLS county unemployment estimates
+- BLS county employer industry estimates
+
+### Load packages
+
+```{r packages, message=FALSE, warning=FALSE}
+# tidyverse packages
+library(tidyverse)
+library(janitor)
+library(patchwork)
+
+# wrangle and model spatial data
+library(tidycensus)
+library(spatialreg)
+library(spdep)
+library(sf)
+library(tigris)
+
+# loading library for regularized regressions
+library(glmnet)
+library(ranger)
+library(randomForest)
+library(MASS)
+library(caret)
+
+# loading library for data imputation
+library(mice)
+
+# loading library for nicely formated tables
+library(kableExtra)
+
+
+```
+
+
+### Load the data
+
+Will want to load the merged data as well as the shapefile for all U.S. counties so we can start our analysis. 
+
+We will cut some variables from the merged dataset that we know we will not use as part of regression modeling. These include the following variables:
+
+- county_name
+- state
+- median_home_value (from census, will be using zillow, so cutting)
+- house_price_jan_2022
+- house_price_feb_2022
+- house_price_mar_2022	
+- house_price_apr_2022
+- house_price_may_2022
+- house_price_jun_2022
+- house_price_july_2022
+- house_price_aug_2022
+- house_price_sep_2022
+- house_price_oct_2022
+- house_price_nov_2022
+- house_price_dec_2022
+- house_price_jan_2023
+- house_price_feb_2023
+- house_price_mar_2023
+- house_price_avg_q1_2022
+- house_price_avg_q2_2022
+- house_price_avg_q3_2022
+- house_price_avg_q4_2022
+- house_price_avg_q1_2023
+- unemployed_rate_q1_22
+- unemployed_rate_q2_22
+- unemployed_rate_q3_22
+- unemployed_rate_q4_22
+- emp_location_quotient_unclassified
+- wage_location_quotient_unclassified
+- black_homeowners
+
+
+
+```{r shape data, results='hide'}
+# load the county shapefile from census using tigris package
+shape <- counties(resolution = '20m',
+                  cb = TRUE) |>
+  rename(fips = GEOID) |>
+  clean_names()
+
+
+```
+
+
+```{r load data, message=FALSE, warning=FALSE}
+# load the merged dataset 
+data <- read.csv("final_data.csv",
+                 colClasses=c("fips"="character")) |>
+  dplyr::select(-c(X,
+            county_name,
+            state,
+            median_home_value,
+            house_price_jan_2022:house_price_avg_q1_2023,
+            unemployed_rate_q1_22:unemployed_rate_q4_22,
+            emp_location_quotient_unclassified,
+            wage_location_quotient_unclassified,
+            black_homeowners
+))
+
+# looking at the data
+as.data.frame(t(head(data,5))) |>
+  kable(col.names = NULL,
+        caption="Variables in housing dataset",
+        digits = 4) |>
+  kable_styling("striped") |>
+  scroll_box(width = "1000px", height = "400px")
+
+```
+
+
+### Cleaning the missing data
+
+```{r clean missing data}
+
+# seeing which values to drop/impute for our dependent variable == house_price_avg_2022
+data |>
+  filter(house_price_avg_2022 == 0 |
+                   is.na(house_price_avg_2022)) |>
+  dplyr::select(fips, total_pop, house_price_avg_2022) |>
+  arrange(desc(total_pop)) |>
+  kable() |>
+  kable_styling("striped") |>
+  scroll_box(width = "1000px", height = "400px")
+
+```
+
+
+It appears there are counties with no housing price data in the data set. Will look to see what the missing data situation is in the data. It appears there are 78 counties/county equivalents without any price data we will need to drop.
+
+```{r missing}
+# number and proportion of missing values per variable
+cbind("# NA" = sort(colSums(is.na(data))),
+      "% NA" = round(sort(colMeans(is.na(data)))*100,2))
+
+
+```
+
+We will use  imputation  to impute our missing values. 
+
+### MICE
+
+A little about MICE: 
+
+MICE is a method for imputing missing data in a dataset by creating multiple plausible imputations for each missing value. The basic idea behind mice is to use a set of regression models to estimate the missing values based on the values of other variables in the dataset. For this analysis, we will be using a single imputation. We will be using a random forest model to impute the values.
+
+
+```{r mice}
+
+data <- data |> 
+  mutate(house_price_avg_2022 = case_match(house_price_avg_2022, 0 ~ NA,
+                                           .default = house_price_avg_2022))
+
+data_incomp <- data 
+
+imp <- mice(data_incomp,
+            m=1,
+            method = 'rf',
+            maxit = 15,
+            seed = 123,
+            printFlag = FALSE)
+
+
+data_comp = complete(imp, action = 1, include = FALSE)
+
+
+
+```
+
+
+Lets see if we have any missing values.
+
+
+```{r imputation missing}
+# number and proportion of missing values per variable
+cbind("# NA" = sort(colSums(is.na(data_comp))),
+      "% NA" = round(sort(colMeans(is.na(data_comp)))*100,2))
+
+
+```
+
+
+We will now want to merge the two data sets together - the shape file and the imputed data.
+
+```{r merging shape file and data set}
+# merge keeping only those in both data sets
+merged <- inner_join(shape, data_comp, by = "fips")
+
+```
+
+### Quick visualization of the data
+
+```{r plot housing prices, fig.width = 12, fig.height = 7}
+
+merged_reshape <- merged |>
+  shift_geometry()
+
+# plot housing prices
+ggplot(data = merged_reshape,
+       aes(fill = house_price_avg_2022)) +
+geom_sf() +
+labs(title = "Counties in the U.S.",
+subtitle = "Housing price in ($)") +
+theme_void() +
+scale_fill_viridis_c(label = scales::comma)
+
+```
+
+Will want to take a quick look at the distribution of our dependent variable, `house_price_avg_2022` and see if we need to transform this.
+
+```{r dist house price}
+# histogram of housing prices
+ggplot(data = merged, aes(x = house_price_avg_2022)) +
+geom_histogram() +
+labs(title = "Distribution of Zillow Housing Prices")
+
+
+```
+
+Obviously there is quite a right skew here, so will want to log transform our housing price variable.
+
+```{r dist house price 2}
+# histogram of housing prices
+ggplot(data = merged, aes(x = log(house_price_avg_2022))) +
+geom_histogram() +
+labs(title = "Distribution of Zillow Housing Prices")
+
+
+merged$log_house_price_avg_2022 <- log(merged$house_price_avg_2022)
+
+merged <- merged |>
+  dplyr::select(-c(house_price_avg_2022))
+
+```
+This is obviously better and looks like a more normal distribution.
+
+## simple regression model to test autocorrelation
+
+Will want to run a simple model to see if the dataset has spatial autocorrelation and see what the residuals look like.
+
+```{r simple model}
+
+# ordinary least-squares model
+m1 <- lm(log_house_price_avg_2022 ~ median_number_rooms
++ median_year_built
++ median_age
++ attained_bachelors
++ mhhi_family
++ total_pop
++ white
++ unemployed_rate_year_22
++ median_number_rooms
++ owners_25_34
++ electricity_cost,
+data = merged)
+
+tidy(m1) |>
+kable(digits = 4)
+
+
+```
+```{r residuals linear model}
+
+# add model residuals to the data
+resid_data <- merged |>
+mutate(resid = resid(m1),
+pred = predict(m1))
+
+ggplot(data = resid_data, aes(x = pred, y = resid)) +
+geom_point() +
+geom_hline(yintercept = 0, color = "red") +
+labs(title = "Residuals vs. Predicted",
+x = "Predicted",
+y = "Residuals")
+
+
+```
+
+
+```{r residual distribution}
+
+# plotting the dist. of the residuals
+p1 <- ggplot(data = resid_data, aes(x = resid)) +
+geom_histogram() +
+labs(title = "Distribution of residuals",
+x = "", y = "")
+p2 <- ggplot(data = resid_data, aes(sample = resid)) +
+stat_qq() +
+stat_qq_line() +
+labs(title = "Normal QQ-plot of the residuals")
+
+# arrange plots using patchwork package
+p1 + p2
+
+
+```
+
+
+It looks like the residuals a bit off - being their is perhaps some autocorrelation occuring. We can check this by using Moran's I.
+
+Moran's I is a statistical measure used to assess spatial autocorrelation in data. It quantifies the degree of similarity or dissimilarity between neighboring observations in a spatial dataset. 
+
+### Checking spatial autocorrelation
+
+We will calculate Moran's I to check for spatial autocorrelation.
+
+```{r moran i}
+# want to add residuals to data set to test for moran's i
+moran_test <- merged |>
+  mutate(residuals = resid(m1),
+         pred = predict((m1)))
+
+# make a spatial neighbor list using the sdep package
+nb <- poly2nb(moran_test)
+
+# calculate weights matrix
+ww <- nb2listw(nb, style = 'B', zero.policy = T) # binary weights matrix
+
+# monte carlo Moran's test
+moran.mc(moran_test$residuals, ww, 1000, zero.policy = T)
+
+
+```
+It looks like their definitely some spatial auto-correlation in the dataset, kind of like we suspected. The test statistic is 0.58. The p-value is 0.0001. Therefore, we conclude that Moran’s I test provides evidence for significant spatial autocorrelation. Our accepted p-value cutoff is 0.05. Since the p-value is less than 0.05, we can conclude that the test statistic is significantly greater than the null hypothesis, i.e. we reject the null hypothesis
+
+Ideally we would use a weighted spatial auto-regression for our data, but since our team doesn't have too much experience using these type of models, we default to using other methods.
+
+### Model testing
+
+Next we will run our models. We will be using a test/train split with 5 folds to test our models. 
+
+
+```{r model testing}
+
+# Data for models
+model_data <- merged |>
+  dplyr::select(attained_bachelors:log_house_price_avg_2022) |>
+  st_drop_geometry()
+
+# Split into train and test sets
+set.seed(123)
+train_indices <- createDataPartition(model_data$log_house_price_avg_2022, p = 0.8, list = FALSE)
+train_data <- model_data[train_indices, ]
+test_data <- model_data[-train_indices, ]
+
+# Random Forest
+rf_model <- randomForest(log_house_price_avg_2022 ~ ., data = train_data, ntree = 500)
+rf_predictions <- predict(rf_model, test_data)
+
+# Lasso with cross-validation and hyperparameter tuning
+lasso_model <- cv.glmnet(as.matrix(train_data[, -ncol(train_data)]),
+                         train_data$log_house_price_avg_2022, alpha = 1, family = "gaussian")
+lasso_predictions <- predict(lasso_model, newx = as.matrix(test_data[, -ncol(test_data)]), s = lasso_model$lambda.min)
+
+# Ridge with cross-validation and hyperparameter tuning
+ridge_model <- cv.glmnet(as.matrix(train_data[, -ncol(train_data)]),
+                         train_data$log_house_price_avg_2022, alpha = 0, family = "gaussian")
+ridge_predictions <- predict(ridge_model, newx = as.matrix(test_data[, -ncol(test_data)]),
+                             s = ridge_model$lambda.min)
+
+
+```
+
+```{r regression diagnostic plots, echo=FALSE}
+
+# Plot coefficients for different lambda values
+p3 <- plot(lasso_model$glmnet.fit, 'lambda', label=F,
+           main = 'Lasso lambda values')
+abline(v=log(lasso_model$lambda.min), col="blue")
+text("Tuned Lambda Value = .001", x = -6, y = -2.5)
+
+p4 <- plot(ridge_model$glmnet.fit, 'lambda', label=F,
+           main = 'Ridge lambda values')
+abline(v=log(ridge_model$lambda.min), col="blue")
+text("Tuned Lambda Value = .047", x = -1, y = -.5)
+
+p5 <- plot(rf_model,
+           main = 'Random forest error rate by tree #')
+
+# arrange plots using patchwork package
+p3 + p4 + p5
+
+```
+
+
+```{r regression metrics}
+
+# Root mean squared error (RMSE)
+rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2))
+}
+rf_rmse <- rmse(test_data$log_house_price_avg_2022, rf_predictions)
+lasso_rmse <- rmse(test_data$log_house_price_avg_2022, lasso_predictions)
+ridge_rmse <- rmse(test_data$log_house_price_avg_2022, ridge_predictions)
+
+
+# Mean squared error (MAE)
+mae <- function(actual, predicted) {
+  mean(abs(actual - predicted))
+}
+rf_mae <- mae(test_data$log_house_price_avg_2022, rf_predictions)
+lasso_mae <- mae(test_data$log_house_price_avg_2022, lasso_predictions)
+ridge_mae <- mae(test_data$log_house_price_avg_2022, ridge_predictions)
+
+
+# R-squared
+r_squared <- function(actual, predicted) {
+  cor(actual, predicted)^2
+}
+ridge_r2 <- r_squared(test_data$log_house_price_avg_2022, ridge_predictions)
+lasso_r2 <- r_squared(test_data$log_house_price_avg_2022, lasso_predictions)
+rf_r2 <- r_squared(test_data$log_house_price_avg_2022, rf_predictions)
+
+
+
+results <- data.frame(Model = c('Random Forest',
+                                   'Lasso',
+                                   'Ridge'),
+                         MAE =  c(rf_mae,
+                                  lasso_mae,
+                                  ridge_mae),
+                         RMSE = c(rf_rmse,
+                                  lasso_rmse,
+                                  ridge_rmse),
+                      r_squared = c(rf_r2,
+                                   lasso_r2,
+                                   ridge_r2
+                                   )
+                      )
+
+
+
+results |>
+  kable() |>
+  kable_styling("striped")
+
+```
+
+The results of the models suggest that the random forest is the model with the least error. The lasso and models were very similar, even with hyper parameter tuning. The lasso model shrunk a few of the coefficients down to zero.
+
+Kind of interesting, the random forest heavily leaned on the quartile ranges in determining the bagging/splitting of the tree along nodes.
+
+```{r tree importance}
+
+rf_model$importance
+
+```
+
+

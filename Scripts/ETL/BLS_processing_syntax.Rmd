@@ -1,0 +1,99 @@
+---
+title: "BLS unemployment data"
+author: "Mason Walker"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidycensus)
+
+```
+
+### 1. Overview of BLS data
+
+The Bureau of Labor Statistics is the federal statistical agency responsible for calculating the official unemployment data. The BLS produces county estimates of the unemployment data through a program called **Local Area Unemployment Statistics**, this program produces monthly and annual employment, unemployment, and labor force data for Census regions and divisions, States, counties, metro areas, and many cities. The official website of LAUS can be found here: <https://www.bls.gov/lau/>
+
+We will be pulling county data from BLS's Local Area Unemployment Statisitcs. The data is hard to find but can be found as a raw text file here: https://www.bls.gov/web/metro/laucntycur14.txt. 
+
+The data will need to be processed and cleaned as it's a fixed width data text file without a clear column structure. I did a little cleaning in excel to clean column names since it would be a pain to load in R and reformat.
+
+## Pulling formating the data
+
+Below if 
+
+```{r pulling BLS data}
+
+# Loading the data
+
+bls_data <- read.csv('bls_unemployment.csv') |>
+  mutate(
+    LAUS_area_code = trimws(LAUS_area_code),
+    area_title = trimws(area_title),
+    period = trimws(period),
+    civilian_labor_force = trimws(civilian_labor_force),
+    employed = trimws(employed),
+    unemployed_level = trimws(unemployed_level),
+    fips = substr(LAUS_area_code, 3, 7)
+         ) |>
+  mutate_at(vars(civilian_labor_force:
+                   unemployed_level),
+            ~as.numeric(gsub(",", "", .)))
+  
+  
+
+glimpse(bls_data)
+
+```
+
+## Cleaning up data and making wide
+
+Next we want to convert the data to wide and only include the variables we need. We will cut everything but `unemployed_rate`, `fips`, and `period`.
+
+Interesting, the county of `Kalawao County` in Hawaii (fips code `15005`) is completely missing from the dataset.
+
+```{r BLS to wide, echo=TRUE}
+
+# Converting to wide
+bls_wide <- bls_data |>
+  filter(state_fips != 72) |>
+  select(period, unemployed_rate, fips) |>
+  spread(period, unemployed_rate) |>
+  mutate(unemployed_rate_q1_22 = (`Jan-22`+`Feb-22`+`Mar-22`)/3,
+         unemployed_rate_q2_22 = (`Apr-22`+`May-22`+`Jun-22`)/3,
+         unemployed_rate_q3_22 = (`Jul-22`+`Aug-22`+`Sep-22`)/3,
+         unemployed_rate_q4_22 = (`Oct-22`+`Nov-22`+`Dec-22`)/3,
+         unemployed_rate_year_22 = (`Jan-22`+`Feb-22`+`Mar-22`+
+                                    `Apr-22`+`May-22`+`Jun-22`+
+                                    `Jul-22`+`Aug-22`+`Sep-22`+
+                                    `Oct-22`+`Nov-22`+`Dec-22`)/12) |>
+  select(fips,
+         unemployed_rate_q1_22,
+         unemployed_rate_q2_22,
+         unemployed_rate_q3_22,
+         unemployed_rate_q4_22,
+         unemployed_rate_year_22
+         )
+
+fips_map <- fips_codes |>
+  mutate(fips = paste0(state_code,county_code)) |>
+  select(fips, state_name, county)
+
+
+```
+
+Will now merge the fips map to the bls_wide data set and create a final data set.
+
+```{r BLS wide}
+
+bls_final <- bls_wide |>
+  left_join(y = fips_map, by = c("fips"))
+
+glimpse(bls_final)
+
+write.csv(bls_final, "bls_final.csv")
+
+```

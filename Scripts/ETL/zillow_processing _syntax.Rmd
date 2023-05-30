@@ -1,0 +1,116 @@
+---
+title: "Zillow Data cleaning"
+author: "Mason Walker"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+
+```
+
+## Zillow data
+
+For our capstone project we will incorporate Zillow housing data. We will be pulling the Zillow housing data from Zillow's own website which hosts a lot of its public facing research data. The data can be found here: https://www.zillow.com/research/data/
+
+The data set is part of **Zillow's Home Value Index (ZHVI)** which is definded as: A measure of the typical home value and market changes across a given region and housing type. It reflects the typical value for homes in the 35th to 65th percentile range. Available as a smoothed, seasonally adjusted measure and as a raw measure.
+
+The data itself is **ZHVI All homes (SFR, Condo/Co-op) Time Series, Smoothed, Seasonally Adjusted ($)**
+
+A full list of variables that are pulled from the dataset and their description can be found in the document **capstone_housing_stm**, but the variables we are pulling from the data include:
+
+- `region_id`
+- `size_rank`
+- `region_name`
+- `region_type`
+- `state_name`
+- `metro`
+- `state_code_fips`
+- `county_code_fips`
+- `fips`
+- `house_price_jan_2022`
+- `house_price_feb_2022`
+- `house_price_mar_2022`
+- `house_price_apr_2022`
+- `house_price_may_2022`
+- `house_price_jun_2022`
+- `house_price_july_2022`
+- `house_price_aug_2022`
+- `house_price_sep_2022`
+- `house_price_oct_2022`
+- `house_price_nov_2022`
+- `house_price_dec_2022`
+- `house_price_jan_2023`
+- `house_price_feb_2023`
+- `house_price_mar_2023`
+- `house_price_avg_q1_2022`
+- `house_price_avg_q2_2022`
+- `house_price_avg_q3_2022`
+- `house_price_avg_q4_2022`
+- `house_price_avg_q1_2023`
+- `house_price_avg_2022`
+
+
+## Loading the data
+
+```{r load zillow data}
+
+# Loading the zillow data
+
+zillow_data <- read.csv('zillow_county_data.csv')
+
+glimpse(zillow_data)
+
+```
+
+## Cleaning the data
+
+We want to drop any data that predates 2022 as well as drop any U.S. territories. Additionally, we want to add fips codes so the data can be merged. It looks like in total their are 3078 counties in the data set. This is a little less than the 3142 counties that exist in the US.
+
+```{r cleaning data}
+
+# Cleaning the zillow data
+
+zillow_data_final <- zillow_data[,c(1:5,7:9,274:288)] |>
+  rename(region_id = RegionID,
+         size_rank = SizeRank,
+         region_name = RegionName,
+         region_type = RegionType,
+         state_name = StateName,
+         metro = Metro,
+         state_code_fips = StateCodeFIPS,
+         county_code_fips = MunicipalCodeFIPS,
+         house_price_jan_2022 = `X1.31.2022`,
+         house_price_feb_2022 = `X2.28.2022`,
+         house_price_mar_2022 = `X3.31.2022`,
+         house_price_apr_2022 = `X4.30.2022`,
+         house_price_may_2022 = `X5.31.2022`,
+         house_price_jun_2022 = `X6.30.2022`,
+         house_price_july_2022 = `X7.31.2022`,
+         house_price_aug_2022 = `X8.31.2022`,
+         house_price_sep_2022 = `X9.30.2022`,
+         house_price_oct_2022 = `X10.31.2022`,
+         house_price_nov_2022 = `X11.30.2022`,
+         house_price_dec_2022 = `X12.31.2022`,
+         house_price_jan_2023 = `X1.31.2023`,
+         house_price_feb_2023 = `X2.28.2023`,
+         house_price_mar_2023 = `X3.31.2023`) %>%
+  mutate(state_code_fips = sprintf("%02d", state_code_fips),
+         county_code_fips = sprintf("%03d", county_code_fips),
+         fips = paste0(state_code_fips, county_code_fips),
+         house_price_avg_q1_2022 = (house_price_jan_2022 + house_price_feb_2022 + house_price_mar_2022)/3,
+         house_price_avg_q2_2022 = (house_price_apr_2022 + house_price_may_2022 + house_price_jun_2022)/3,
+         house_price_avg_q3_2022 = (house_price_july_2022 + house_price_aug_2022 + house_price_sep_2022)/3,
+         house_price_avg_q4_2022 = (house_price_oct_2022 + house_price_nov_2022 + house_price_dec_2022)/3,
+         house_price_avg_q1_2023 = (house_price_jan_2023 + house_price_feb_2023 + house_price_mar_2023)/3,
+         house_price_avg_2022 = rowSums(.[9:20], na.rm=TRUE)/12) 
+
+# Saving the data
+write.csv(zillow_data_final, "zillow_final.csv")
+
+```
+

@@ -1,0 +1,295 @@
+---
+title: "Census housing data"
+author: "Mason Walker"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidycensus)
+library(kableExtra)
+
+```
+
+### 1. Overview of Census data
+
+The decennial US Census is intended to be a complete enumeration of the US population to assist with apportionment, which refers to the balanced arrangement of Congressional districts to ensure appropriate representation in the United States House of Representatives. It asks a limited set of questions on race, ethnicity, age, sex, and housing tenure.
+
+Before the 2010 decennial Census, 1 in 6 Americans also received the Census long form, which asked a wider range of demographic questions on income, education, language, housing, and more. The Census long form has since been replaced by the **American Community Survey**, which is now the premier source of detailed demographic information about the US population.
+
+The ACS is mailed to approximately 3.5 million households per year (representing around 3 percent of the US population), allowing for annual data updates. The Census Bureau releases two ACS datasets to the public: the **1-year ACS**, which covers areas of population 65,000 and greater, and the **5-year ACS**, which is a moving average of data over a 5-year period that covers geographies down to the Census block group. ACS data are distinct from decennial Census data in that data represent estimates rather than precise counts, and in turn are characterized by margins of error around those estimates.
+
+***When to Use 1-year vs. Multi-year (3- or 5-year estimates)***
+
+
+Use 1-year estimates when:
+
+- Currency (timeliness) is critical
+- Researching large areas experiencing rapid change
+- Examining year-to-year changes
+
+Use multi-year estimates when:
+
+- Reliability of the data is critical
+- Analyzing data for small areas (the 1-year sample sizes are too small to get a reliable base for estimates)
+- Studying smaller populations in large areas
+- Examining a set of areas in which some areas have only multi-year estimates
+
+### 2. Census hierarchies
+
+Aggregate data from the decennial US Census, American Community Survey, and other Census surveys are made available to the public at different *enumeration units*. Enumeration units are geographies at which Census data are tabulated. They include both *legal entities* such as states and counties, and *statistical entities* that are not official jurisdictions but used to standardize data tabulation. The smallest unit at which data are made available from ACS is the **block group**, which represents a collection of blocks. Other surveys are generally available at higher levels of aggregation.
+
+```{r census-hieararchy, echo=FALSE}
+
+#knitr::include_graphics('acs-geographic-hierarchy.avif')
+
+```
+
+
+### ACS data
+
+For our analysis we will be using ACS data. The data will be pulled using the Census API using *TidyCensus* package. The TidyCensus package pulls the raw count data from the API, so will need to normalize some of the data into proportions by dividing the data by some specified base. We will be pulling the data at the **county** level using the Census ACS 5-year pre-tabulated estimates (2017-2022). We decided to use the 5-year file due to the better precision of the estimates and because we wouldn't be using any time series analysis as part of our project.
+
+### Pulling the data for proportions
+
+Below is a list of variables and their census codes, the variables with an `_d` denote that they are the denominator used to calculate the proportions:
+
+**Census numerator variables**
+
+```{r census prop numerator, echo=FALSE}
+
+# Pulling the variables that will be used in the numerator of the proportion
+
+acs_sum_var_n <- data.frame(variable_desc = c("white",
+                                          "black",
+                                          "transportation_drive_alone",
+                                          "transportation_public",
+                                          "attained_bachelors",
+                                          "attained_masters",
+                                          "attained_professional",
+                                          "attained_doctorate",
+                                          "more_than_200k",
+                                          "vacant_units",
+                                          "renter_occupied",
+                                          "black_homeowners",
+                                          "owners_25_34",
+                                          "one_person_household",
+                                          "plumbing_complete",
+                                          "kitchen_complete",
+                                          "one_room",
+                                          "two_rooms",
+                                          "three_rooms",
+                                          "four_rooms",
+                                          "five_rooms",
+                                          "six_rooms",
+                                          "seven_rooms",
+                                          "eight_rooms",
+                                          "electricity_cost"),
+                            census_code = c("B03002_003",
+                                            "B03002_004",
+                                            "B08006_003",
+                                            "B08006_008",
+                                            "B15003_022",
+                                            "B15003_023",
+                                            "B15003_024",
+                                            "B15003_025",
+                                            "B19001_017",
+                                            "B25002_003",
+                                            "B25003_003",
+                                            "B25003B_002",
+                                            "B25007_004",
+                                            "B08202_006",
+                                            "B25048_002",
+                                            "B25052_002",
+                                            "B25017_002",
+                                            "B25017_003",
+                                            "B25017_004",
+                                            "B25017_005",
+                                            "B25017_006",
+                                            "B25017_007",
+                                            "B25017_008",
+                                            "B25017_009",
+                                            "B25132_004"
+                                            )
+                            )
+
+kbl(acs_sum_var_n)
+
+```
+
+$$\\[.5in]$$
+**Census denominator variables**
+
+```{r census prop denominator, echo=FALSE}
+# Pulling the variables that will be used in the denominator of the proportion
+
+
+acs_sum_var_d <- data.frame(variable_desc = paste0(acs_sum_var_n$variable_desc, "_d"),
+                            census_code_denom = 
+                              c("B03002_001",
+                                "B03002_001",
+                                "B08006_001",
+                                "B08006_001",
+                                "B15003_001",
+                                "B15003_001",
+                                "B15003_001",
+                                "B15003_001",
+                                "B19001_001",
+                                "B25002_001",
+                                "B25003_001",
+                                "B25003B_001",
+                                "B25007_002",
+                                "B08202_001",
+                                "B25048_001",
+                                "B25052_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25017_001",
+                                "B25132_001"
+                                )
+                            )
+kbl(acs_sum_var_d)
+
+```
+
+$$\\[.5in]$$
+**Census count variables**
+
+```{r census counts, echo=FALSE}
+
+# Pulling the variables that will be used for the counts
+
+acs_sum_var_count <- data.frame(variable_desc = c("median_age",
+                                                  "total_pop",
+                                                  "mhhi",
+                                                  "mhhi_family",
+                                                  "mhhi_nonfamily",
+                                                  "mean_household_size_owner",
+                                                  "mean_household_size_renter",
+                                                  "median_gross_rent",
+                                                  "median_gross_rent_frac_income",
+                                                  "lower_quartile_home_value",
+                                                  "median_home_value",
+                                                  "upper_quartile_home_value",
+                                                  "median_number_rooms",
+                                                  "median_year_built"
+                                                  ),
+                                census_code = c("B01002_001",
+                                                "B01001_001",
+                                                "B19013_001",
+                                                "B19113_001",
+                                                "B19202_001",
+                                                "B25010_002",
+                                                "B25010_003",
+                                                "B25031_001",
+                                                "B25071_001",
+                                                "B25076_001",
+                                                "B25077_001",
+                                                "B25078_001",
+                                                "B25018_001",
+                                                "B25037_001"
+                                                )
+                                )
+kbl(acs_sum_var_count)
+
+
+```                
+
+Below is the data pulled for the proportion variables:
+
+```{r pulling proportions, warning=FALSE, message=FALSE}
+
+# Pulling the data that are proportions
+
+api_key = "7b3175eff1f93c123146e4633c52e92e8b886000"
+
+acs_prop <- map2_dfr(
+  acs_sum_var_n$census_code,
+  acs_sum_var_d$census_code_denom,
+    ~ get_acs(
+        key = api_key,
+        geography = "county",
+        variables = .x,
+        geometry = FALSE,
+        year = 2021,
+        survey = "acs5",
+        summary_var = .y,
+        moe_level = 90
+        )
+  ) |>
+  mutate(proportion = estimate / summary_est,
+         prop_moe = moe_prop(estimate,
+                             summary_est,
+                             moe,
+                             summary_moe)) |>
+  left_join(y = acs_sum_var_n, by = c("variable" = "census_code"))
+
+acs_prop_reduced <- acs_prop |>
+  select(-c(estimate,
+            moe,
+            summary_est,
+            summary_moe)) |>
+  rename(estimate = proportion,
+         moe = prop_moe)
+  
+
+glimpse(acs_prop_reduced)
+
+```
+
+### Pulling the data for medians and other counts
+
+Below is a list of variables for the variables with medians and other counts and a glimpse of the data:
+
+```{r count variables, warning=FALSE}
+
+# Pulling the count data
+
+acs_count <- get_acs(
+        key = api_key,
+        geography = "county",
+        variables = acs_sum_var_count$census_code,
+        geometry = FALSE,
+        year = 2021,
+        survey = "acs5",
+        moe_level = 90
+        ) |>
+  left_join(y = acs_sum_var_count, by = c("variable" = "census_code"))
+
+glimpse(acs_count)
+  
+
+```
+
+
+### Cleaning and merging the census data and making it wide
+
+Next will collapse the census data to one data set and make it wide and clean it up for export.
+
+```{r cleaning census, warning=FALSE}
+
+# Binding the data sets together
+acs_complete <- rbind(acs_prop_reduced, acs_count)
+
+# Dropping any unnecessary variables
+acs_final <- acs_complete |>
+  select(-c(moe, variable)) |>
+  spread(variable_desc, estimate) |>
+  rename(fips = GEOID) |>
+  separate_wider_delim(NAME, ", ", names = c("county_name", "state")) |>
+  filter(state != "Puerto Rico")
+
+# Looking at the data
+glimpse(acs_final)
+
+write.csv(acs_final, "acs_final.csv")
+
+```

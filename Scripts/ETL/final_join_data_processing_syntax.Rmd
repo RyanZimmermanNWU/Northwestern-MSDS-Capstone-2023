@@ -1,0 +1,63 @@
+---
+title: "Final data joining syntax"
+author: "Mason Walker"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Joining all the datasets
+
+Here I will joing the datasets we are using for our capstone project together to form our final dataset. The datasets that will stitched together include:
+
+- U.S. Census ACS county demographic and housing data
+- BLS county unenmployment data
+- BLS county industry and wage concentration data
+- Zillow county housing values index data
+
+The respective data files can be found on GitHub and include:
+
+- `acs_final.csv` = U.S. Census ACS county data
+- `bls_final.csv` = BLS county unenemployment data
+- `zillow_final.csv` = Zillw county housing values index data
+- `bls_qcew_final.csv` = BLS county industry and wage concentration data
+
+```{r joing data}
+# Loading libraries
+library(tidyverse)
+
+# Loading all the data
+census_data <- read.csv("acs_final.csv", colClasses = c('fips'='character'))
+bls_employment_data <- read.csv("bls_final.csv", colClasses = c('fips'='character'))
+zillow_data <- read.csv("zillow_final.csv", colClasses = c('fips'='character'))
+bls_qcew_data <- read.csv("bls_qcew_final.csv", colClasses = c('area_code'='character'))
+
+
+# Drop repetive variables
+
+bls_employment_data <- bls_employment_data |>
+  select(-c(X, state_name, county))
+
+bls_qcew_data <- bls_qcew_data |>
+  select(-c(X, area))
+
+zillow_data <- zillow_data |>
+  select(-c(X, region_id, size_rank, region_name, region_type, state_name, metro,
+            state_code_fips, county_code_fips))
+
+final_data <- census_data |>
+  left_join(bls_employment_data, by = join_by(fips == fips)) |>
+  left_join(bls_qcew_data, by = join_by(fips == area_code)) |>
+  left_join(zillow_data, by = join_by(fips == fips)) |>
+  select(-c(X))
+
+# Outputting the final data
+write.csv(final_data, "final_data.csv")
+
+
+
+```
+

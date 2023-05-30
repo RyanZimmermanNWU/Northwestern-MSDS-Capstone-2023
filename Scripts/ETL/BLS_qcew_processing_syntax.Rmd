@@ -1,0 +1,109 @@
+---
+title: "bls_qcew_processing_syntax"
+author: "Mason Walker"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## BLS Quarterly Census of Employment Wages data
+
+**About QCEW**
+
+The Quarterly Census of Employment and Wages (QCEW) program publishes a quarterly count of employment and wages reported by employers covering more than 95 percent of U.S. jobs available at the county, Metropolitan Statistical Area (MSA), state and national levels by detailed industry. For more detailed information about the QCEW program, see the QCEW Handbook of Methods (HOM).
+
+QCEW produces a comprehensive tabulation of data on the number of establishments, monthly employment and quarterly wages for workers covered by State unemployment insurance (UI) laws and Federal workers covered by the Unemployment Compensation for Federal Employees (UCFE) program. These data are aggregated to many different levels, starting at the 6-digit NAICS industry level, to higher industry levels (NAICS industry groups, sectors, and supersectors), and to higher geographic levels (MSA, State, and national). At the national level, the QCEW program publishes establishment, employment and wage data for nearly every NAICS industry. At the State, county and MSA level, the QCEW program publishes establishment, employment, and wage data down to the 6-digit NAICS industry level, if disclosure restrictions are met. Establishment counts and wage data are available quarterly and annually.
+
+BLS publishes data from the QCEW program every quarter in the County Employment and Wages press release, within 5 months after the end of each referenced quarter. About two weeks after this release is available, the QCEW program also publishes full quarterly industry detail data, at all geographic levels in several file formats, through our data files. Additional QCEW data tools include Open Data Access, the QCEW Data Viewer, and the QCEW State and County Map. More information about current and future news release and full data access can be found on our release calendar. Historical data availability details, from these QCEW database tools, can be found on the QCEW Data Availability page.
+
+**Surveys and data collection**
+
+The QCEW conducts two surveys in addition to collecting administrative data. Approximately one-third of all private sector U.S. businesses with more than three employees are contacted annually to verify their main business activity and physical location address via the Annual Refiling Survey (ARS). Eligible multiple-establishment employers are required to report quarterly employment and wage data via the Multiple Worksite Report (MWR). Both surveys collect data via paper forms and electronically.
+
+**Data retrieval**
+
+The data used here in this notebook is taken from BLS's QCEW website here: <https://www.bls.gov/cew/downloadable-data-files.htm#naics-based>
+
+The **2021 County-High-Level** data is used since that is the only year that has full-year estimates available. The 2022 data only has Q1-Q3 data available as of the time of this analysis.
+
+## Loading the data
+
+```{r loading the data}
+
+# Loading the data and reading in the first workbook
+library(readxl)
+library(janitor)
+library(tidycensus)
+
+qcew_data <- read_excel('bls_qcew_data_21_annual.xlsx',
+                        sheet=1) |>
+  clean_names()
+
+glimpse(qcew_data)
+
+```
+
+## Cleaning the data
+
+Will want to look at just the annual estimates as well as just look at the broad industry level - grabbing the location and wage quotients for each county. These quotients will highlight if a county has above average, compared to the U.S. overall, employment or wages in a particular industry. A number above 1 indicates a higher than average value, while below 1 indicates lower than avergae. 1 indicates average.
+
+The NAICS code we will be filtering on include:
+
+- `1011 Natural Resources and mining (Goods-producing)`
+- `1012 Construction (Goods-producing)`
+- `1013 Manufacturing (Goods-producing)`
+- `1021 Trade, transportation, and utilities (Service-providing)`
+- `1022 Information (Service-providing)`
+- `1023 Financial activities (Service-providing)`
+- `1024 Professional and business services (Service-providing)`
+- `1025 Education and health services (Service-providing)`
+- `1026 Leisure and hospitality (Service-providing)`
+- `1027 Other services (Service-providing)`
+- `1028 Public administration (Service-providing)`
+- `1029 Unclassified (Service-providing)`
+
+```{r cleaning data}
+
+# Cleaning the dataset
+
+qcew_clean <- qcew_data |>
+  filter(area_type == "County",
+         naics %in% c("1011",
+                      "1012",
+                      "1013",
+                      "1021",
+                      "1022",
+                      "1023",
+                      "1024",
+                      "1025",
+                      "1026",
+                      "1027",
+                      "1028",
+                      "1029"))
+
+qcew_final <- qcew_clean |>
+  rename(emp_location_quotient = employment_location_quotient_relative_to_u_s,
+         wage_location_quotient = total_wage_location_quotient_relative_to_u_s) |>
+  separate_wider_delim(industry,
+                       delim = " ",
+                       names = c("code", "description"),
+                       too_many = "merge") |>
+  mutate(description = str_replace_all(description, "[[:punct:]]", "")) |>
+  select(c(area_code,
+           area,
+           description,
+           emp_location_quotient,
+           wage_location_quotient)) |>
+  pivot_wider(names_from = description,
+              values_from = c(emp_location_quotient,
+                              wage_location_quotient)) |>
+  clean_names()
+
+# Saving the data
+
+write.csv(qcew_final, "bls_qcew_final.csv")
+
+```
